@@ -97,12 +97,12 @@ fn validate_range_order(prev: &IpAddressRange, curr: &IpAddressRange) -> Result<
             ));
         }
 
-        if prev.ip_protocol == curr.ip_protocol {
-            if cmp_ip_addr(&prev.end, &curr.start) != std::cmp::Ordering::Less {
-                return Err(Error::ProtocolViolation(
-                    "ROUTE_ADVERTISEMENT ranges overlap".into(),
-                ));
-            }
+        if prev.ip_protocol == curr.ip_protocol
+            && cmp_ip_addr(&prev.end, &curr.start) != std::cmp::Ordering::Less
+        {
+            return Err(Error::ProtocolViolation(
+                "ROUTE_ADVERTISEMENT ranges overlap".into(),
+            ));
         }
     }
 

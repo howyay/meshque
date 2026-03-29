@@ -37,7 +37,7 @@ impl ConnectIpProxy {
                 && request
                     .extensions()
                     .get::<Protocol>()
-                    .map_or(false, |p| *p == Protocol::CONNECT_IP);
+                    .is_some_and(|p| *p == Protocol::CONNECT_IP);
 
             if !is_connect_ip {
                 let mut stream = stream;
