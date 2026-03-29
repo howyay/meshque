@@ -65,9 +65,10 @@ async fn run_responder(
     transport.datagram_send_buffer_size(65535);
     let transport = Arc::new(transport);
 
-    let server_crypto = rustls::ServerConfig::builder()
+    let mut server_crypto = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
+    server_crypto.alpn_protocols = vec![b"h3".to_vec()];
     let mut server_config =
         quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
     server_config.transport_config(transport);
