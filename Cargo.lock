@@ -1204,6 +1204,7 @@ dependencies = [
  "quinn",
  "rcgen",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

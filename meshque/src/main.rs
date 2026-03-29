@@ -1,5 +1,7 @@
 mod config;
 mod connection;
+mod nat;
+mod signaling;
 mod tun_device;
 mod tunnel;
 

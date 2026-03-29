@@ -15,9 +15,10 @@ h3 = { git = "https://github.com/hyperium/h3", features = ["i-implement-a-third-
 h3-quinn = { git = "https://github.com/hyperium/h3", features = ["datagram"] }
 h3-datagram = { git = "https://github.com/hyperium/h3" }
 
-# TLS
+# TLS / Crypto
 rustls = { version = "0.23", features = ["ring"] }
 rcgen = "0.13"
+ring = "0.17"
 
 # TUN device
 tun-rs = { version = "2", features = ["async"] }
