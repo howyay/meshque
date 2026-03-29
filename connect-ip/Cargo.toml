@@ -8,9 +8,10 @@ repository = "https://github.com/TODO/connect-ip"
 
 [dependencies]
 quinn = "0.11"
-h3 = "0.0.8"
-h3-quinn = "0.0.9"
-h3-datagram = "0.0.2"
+h3 = { git = "https://github.com/hyperium/h3", features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+h3-quinn = { git = "https://github.com/hyperium/h3", features = ["datagram"] }
+h3-datagram = { git = "https://github.com/hyperium/h3" }
+http = "1"
 tokio = { version = "1", features = ["full"] }
 bytes = "1"
 thiserror = "2"
