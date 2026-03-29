@@ -1,7 +1,8 @@
 //! Interop test: our Rust client ↔ connect-ip-go proxy.
 //!
 //! Requires: Go runtime (via nix-shell -p go).
-//! Run: cargo test --features interop --test interop
+//! Run: cargo test --features interop --test go_proxy
+#![cfg(feature = "interop")]
 
 use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
