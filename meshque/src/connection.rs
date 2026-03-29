@@ -1,16 +1,18 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use ring::digest;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use connect_ip::capsule::address::{AddressAssign, AssignedAddress};
 use connect_ip::capsule::route::{IpAddressRange, RouteAdvertisement};
 use connect_ip::client::ConnectIpClient;
 use connect_ip::proxy::ConnectIpProxy;
+use connect_ip::session::ConnectIpSession;
 use connect_ip::types::IpVersion;
 
 use crate::config::{Config, Role};
@@ -19,26 +21,70 @@ use crate::signaling;
 use crate::tun_device;
 use crate::tunnel;
 
-/// Main entry point — run the connection based on config.
+const MAX_BACKOFF: Duration = Duration::from_secs(30);
+const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
+
+/// Main entry point — run the connection with reconnection logic.
 pub async fn run(cfg: Config) -> Result<()> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| anyhow::anyhow!("failed to install crypto provider"))?;
 
-    // Generate self-signed cert for QUIC/TLS
-    let (cert_der, key_der) = generate_cert()?;
-    let fingerprint = cert_fingerprint(&cert_der[0]);
-    info!(fingerprint = %fingerprint, "Generated ephemeral TLS certificate");
+    let mut backoff = INITIAL_BACKOFF;
+    let mut attempt = 0u32;
 
-    match &cfg.direct_addr {
-        Some(_) => run_direct(cfg, cert_der, key_der).await,
-        None => run_signaled(cfg, cert_der, key_der, fingerprint).await,
+    loop {
+        attempt += 1;
+
+        // Generate fresh cert each attempt (ephemeral identity)
+        let (cert_der, key_der) = generate_cert()?;
+        let fingerprint = cert_fingerprint(&cert_der[0]);
+        if attempt == 1 {
+            info!(fingerprint = %fingerprint, "Generated ephemeral TLS certificate");
+        } else {
+            info!(attempt, fingerprint = %fingerprint, "Reconnecting with fresh certificate");
+        }
+
+        let result = match &cfg.direct_addr {
+            Some(_) => run_direct(&cfg, cert_der, key_der).await,
+            None => run_signaled(&cfg, cert_der, key_der, fingerprint).await,
+        };
+
+        match result {
+            Ok(()) => {
+                info!("Connection closed cleanly");
+                return Ok(());
+            }
+            Err(e) => {
+                error!(error = %e, attempt, "Connection failed");
+
+                // Check if this is a non-retryable error
+                let msg = format!("{e:#}");
+                if msg.contains("are you root")
+                    || msg.contains("Operation not permitted")
+                    || msg.contains("invalid peer address")
+                    || msg.contains("room_code required")
+                {
+                    return Err(e);
+                }
+
+                info!(
+                    backoff_secs = backoff.as_secs_f32(),
+                    "Retrying in {:.0}s...",
+                    backoff.as_secs_f32()
+                );
+                tokio::time::sleep(backoff).await;
+
+                // Exponential backoff: 1, 2, 4, 8, 16, 30, 30, 30...
+                backoff = (backoff * 2).min(MAX_BACKOFF);
+            }
+        }
     }
 }
 
-/// Direct connection mode (--direct flag) — no signaling server.
+/// Direct connection mode (--direct flag).
 async fn run_direct(
-    cfg: Config,
+    cfg: &Config,
     cert_der: Vec<CertificateDer<'static>>,
     key_der: PrivateKeyDer<'static>,
 ) -> Result<()> {
@@ -46,7 +92,8 @@ async fn run_direct(
     match cfg.role {
         Role::Responder => {
             info!(listen = %listen_addr, "Starting as responder (proxy)");
-            run_responder(cfg, cert_der, key_der, listen_addr, None).await
+            let socket = std::net::UdpSocket::bind(listen_addr)?;
+            run_responder(cfg, cert_der, key_der, socket, None).await
         }
         Role::Initiator => {
             let addr: SocketAddr = cfg
@@ -56,14 +103,15 @@ async fn run_direct(
                 .parse()
                 .context("invalid peer address")?;
             info!(peer = %addr, "Starting as initiator (client)");
-            run_initiator(cfg, cert_der, key_der, addr, None).await
+            let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+            run_initiator(cfg, cert_der, key_der, socket, addr, None).await
         }
     }
 }
 
 /// Signaling server mode — discover peer via signaling + STUN + hole punch.
 async fn run_signaled(
-    cfg: Config,
+    cfg: &Config,
     cert_der: Vec<CertificateDer<'static>>,
     key_der: PrivateKeyDer<'static>,
     fingerprint: String,
@@ -73,7 +121,7 @@ async fn run_signaled(
         .as_deref()
         .context("room_code required for signaling mode")?;
 
-    // Bind a UDP socket we'll use for both STUN and QUIC
+    // Bind a UDP socket for STUN + QUIC
     let socket = tokio::net::UdpSocket::bind(cfg.listen_addr).await?;
     let local_addr = socket.local_addr()?;
     info!(bind = %local_addr, "Bound UDP socket");
@@ -113,16 +161,14 @@ async fn run_signaled(
 
     // Convert tokio socket to std for quinn
     let std_socket = socket.into_std()?;
-
     let expected_fingerprint = Some(sig_result.remote.cert_fingerprint.clone());
 
     match sig_result.role {
         Role::Responder => {
-            run_responder_with_socket(cfg, cert_der, key_der, std_socket, expected_fingerprint)
-                .await
+            run_responder(cfg, cert_der, key_der, std_socket, expected_fingerprint).await
         }
         Role::Initiator => {
-            run_initiator_with_socket(
+            run_initiator(
                 cfg,
                 cert_der,
                 key_der,
@@ -142,7 +188,6 @@ fn generate_cert() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'stati
     Ok((vec![cert_der], key.into()))
 }
 
-/// Compute SHA-256 fingerprint of a DER-encoded certificate.
 fn cert_fingerprint(cert: &CertificateDer<'_>) -> String {
     let hash = digest::digest(&digest::SHA256, cert.as_ref());
     let hex = hash
@@ -154,7 +199,6 @@ fn cert_fingerprint(cert: &CertificateDer<'_>) -> String {
     format!("sha256:{hex}")
 }
 
-/// Generate a simple UUID-like ID (no dependency needed).
 fn uuid_simple() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -166,21 +210,8 @@ fn uuid_simple() -> String {
 
 // --- Responder (proxy) ---
 
-/// Responder with a new endpoint (direct mode).
 async fn run_responder(
-    cfg: Config,
-    certs: Vec<CertificateDer<'static>>,
-    key: PrivateKeyDer<'static>,
-    listen_addr: SocketAddr,
-    expected_fingerprint: Option<String>,
-) -> Result<()> {
-    let std_socket = std::net::UdpSocket::bind(listen_addr)?;
-    run_responder_with_socket(cfg, certs, key, std_socket, expected_fingerprint).await
-}
-
-/// Responder with a pre-bound socket (signaling mode, after hole punch).
-async fn run_responder_with_socket(
-    cfg: Config,
+    cfg: &Config,
     certs: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
     socket: std::net::UdpSocket,
@@ -237,6 +268,7 @@ async fn run_responder_with_socket(
     let local_addr = Ipv4Addr::new(100, 64, 0, 1);
     let peer_addr = Ipv4Addr::new(100, 64, 0, 2);
 
+    // Send ADDRESS_ASSIGN
     let assign = AddressAssign {
         addresses: vec![AssignedAddress {
             request_id: 0,
@@ -248,6 +280,7 @@ async fn run_responder_with_socket(
     session.send_address_assign(&assign).await?;
     info!(assigned = %peer_addr, "Sent ADDRESS_ASSIGN to peer");
 
+    // Send ROUTE_ADVERTISEMENT
     let routes = RouteAdvertisement {
         ranges: vec![IpAddressRange {
             ip_version: IpVersion::V4,
@@ -259,29 +292,14 @@ async fn run_responder_with_socket(
     session.send_route_advertisement(&routes).await?;
     info!("Sent ROUTE_ADVERTISEMENT");
 
-    let mtu = session.tunnel_mtu().unwrap_or(1400) as u16;
-    let tun = tun_device::create_tun(&cfg.tun_name, local_addr, peer_addr, mtu)?;
-
-    tunnel::run_tunnel(session, &tun).await
+    // Create TUN and run tunnel
+    run_with_tun(cfg, session, local_addr, peer_addr).await
 }
 
 // --- Initiator (client) ---
 
-/// Initiator with a new endpoint (direct mode).
 async fn run_initiator(
-    cfg: Config,
-    certs: Vec<CertificateDer<'static>>,
-    key: PrivateKeyDer<'static>,
-    peer_addr: SocketAddr,
-    expected_fingerprint: Option<String>,
-) -> Result<()> {
-    let std_socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
-    run_initiator_with_socket(cfg, certs, key, std_socket, peer_addr, expected_fingerprint).await
-}
-
-/// Initiator with a pre-bound socket (signaling mode, after hole punch).
-async fn run_initiator_with_socket(
-    cfg: Config,
+    cfg: &Config,
     certs: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
     socket: std::net::UdpSocket,
@@ -318,7 +336,9 @@ async fn run_initiator_with_socket(
     )?;
 
     info!(peer = %peer_addr, "Connecting to peer");
-    let quic_conn = endpoint.connect_with(client_config, peer_addr, "meshque-peer")?.await?;
+    let quic_conn = endpoint
+        .connect_with(client_config, peer_addr, "meshque-peer")?
+        .await?;
     let max_dg = quic_conn.max_datagram_size();
     info!("QUIC connection established");
 
@@ -333,6 +353,7 @@ async fn run_initiator_with_socket(
 
     let mut session = client_session.session;
 
+    // Receive ADDRESS_ASSIGN
     let capsule = session
         .recv_capsule()
         .await?
@@ -352,32 +373,46 @@ async fn run_initiator_with_socket(
     };
     info!(address = %local_addr, "Received ADDRESS_ASSIGN");
 
+    // Receive ROUTE_ADVERTISEMENT
     let capsule = session
         .recv_capsule()
         .await?
         .context("expected ROUTE_ADVERTISEMENT capsule")?;
     match capsule {
         connect_ip::Capsule::RouteAdvertisement(routes) => {
-            info!(
-                ranges = routes.ranges.len(),
-                "Received ROUTE_ADVERTISEMENT"
-            );
+            info!(ranges = routes.ranges.len(), "Received ROUTE_ADVERTISEMENT");
         }
         other => bail!("expected ROUTE_ADVERTISEMENT, got {:?}", other),
     }
 
     let peer_tun_addr = Ipv4Addr::new(100, 64, 0, 1);
-    let mtu = session.tunnel_mtu().unwrap_or(1400) as u16;
-    let tun = tun_device::create_tun(&cfg.tun_name, local_addr, peer_tun_addr, mtu)?;
 
-    let result = tunnel::run_tunnel(session, &tun).await;
+    let result = run_with_tun(cfg, session, local_addr, peer_tun_addr).await;
     driver_handle.abort();
     result
 }
 
+/// Create TUN device and run the tunnel loop.
+async fn run_with_tun<C>(
+    cfg: &Config,
+    session: ConnectIpSession<C>,
+    local_addr: Ipv4Addr,
+    peer_addr: Ipv4Addr,
+) -> Result<()>
+where
+    C: h3::quic::Connection<bytes::Bytes>
+        + h3_datagram::quic_traits::DatagramConnectionExt<bytes::Bytes>,
+    C::BidiStream: h3::quic::BidiStream<bytes::Bytes>,
+    <C::RecvDatagramHandler as h3_datagram::quic_traits::RecvDatagram>::Buffer:
+        Into<bytes::Bytes>,
+{
+    let mtu = session.tunnel_mtu().unwrap_or(1400) as u16;
+    let tun = tun_device::create_tun(&cfg.tun_name, local_addr, peer_addr, mtu)?;
+    tunnel::run_tunnel(session, &tun).await
+}
+
 // --- Certificate Verifiers ---
 
-/// Accept any TLS certificate (direct mode without fingerprint).
 #[derive(Debug)]
 struct AcceptAnyCert;
 
@@ -418,7 +453,6 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAnyCert {
     }
 }
 
-/// Verify the server's certificate fingerprint matches the expected value from signaling.
 #[derive(Debug)]
 struct FingerprintVerifier(String);
 
