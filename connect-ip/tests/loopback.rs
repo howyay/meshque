@@ -215,3 +215,107 @@ async fn non_connect_ip_request_rejected_with_400() {
     proxy_handle.await.unwrap();
     driver_handle.abort();
 }
+
+/// Test concurrent capsule + datagram I/O using session.into_parts().
+/// The proxy sends a ROUTE_ADVERTISEMENT capsule AND IP packets simultaneously.
+/// The client receives both using tokio::select! on independent handles.
+#[tokio::test]
+async fn concurrent_capsule_and_datagram_io() {
+    use connect_ip::capsule::route::{IpAddressRange, RouteAdvertisement};
+    use connect_ip::session::Capsule;
+    use connect_ip::types::IpVersion;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    let (certs, key) = helpers::generate_test_certs();
+    let (server_endpoint, server_addr) = helpers::make_server_endpoint(certs.clone(), key);
+    let client_endpoint = helpers::make_client_endpoint(&certs);
+
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let proxy_handle = tokio::spawn(async move {
+        let incoming = server_endpoint.accept().await.unwrap();
+        let quic_conn = incoming.await.unwrap();
+        let h3_conn = h3_quinn::Connection::new(quic_conn);
+
+        let mut conn = h3::server::builder()
+            .enable_extended_connect(true)
+            .enable_datagram(true)
+            .build(h3_conn)
+            .await
+            .unwrap();
+
+        let request = ConnectIpProxy::accept(&mut conn).await.unwrap().unwrap();
+        let session = request.accept(&conn, None).await.unwrap();
+
+        // Split into parts for concurrent I/O
+        let mut parts = session.into_parts();
+
+        // Send a route advertisement capsule
+        let routes = RouteAdvertisement {
+            ranges: vec![IpAddressRange {
+                ip_version: IpVersion::V4,
+                start: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 0)),
+                end: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 255)),
+                ip_protocol: 0,
+            }],
+        };
+        parts.capsule_send.send_route_advertisement(&routes).await.unwrap();
+
+        // Also send an IP packet
+        let packet = vec![0x45u8; 20];
+        parts.datagram_send.send_ip_packet(&packet).unwrap();
+
+        let _ = done_rx.await;
+    });
+
+    let quic_conn = client_endpoint
+        .connect(server_addr, "localhost")
+        .unwrap()
+        .await
+        .unwrap();
+
+    let h3_conn = h3_quinn::Connection::new(quic_conn);
+    let mut client_session =
+        ConnectIpClient::connect(h3_conn, "*", "*", None).await.unwrap();
+
+    let driver_handle = tokio::spawn(async move {
+        let mut driver = client_session.driver;
+        driver.wait_idle().await;
+    });
+
+    // Split the client session for concurrent recv
+    let mut parts = client_session.session.into_parts();
+
+    // Use tokio::select! to receive both capsule and datagram concurrently
+    let mut got_capsule = false;
+    let mut got_packet = false;
+
+    // We need to receive both — order is non-deterministic
+    for _ in 0..2 {
+        tokio::select! {
+            result = parts.datagram_recv.recv_ip_packet() => {
+                let packet = result.unwrap();
+                assert_eq!(packet.len(), 20);
+                assert_eq!(packet[0], 0x45);
+                got_packet = true;
+            }
+            result = parts.capsule_recv.recv_capsule() => {
+                let capsule = result.unwrap().unwrap();
+                match capsule {
+                    Capsule::RouteAdvertisement(routes) => {
+                        assert_eq!(routes.ranges.len(), 1);
+                        got_capsule = true;
+                    }
+                    other => panic!("unexpected capsule: {:?}", other),
+                }
+            }
+        }
+    }
+
+    assert!(got_capsule, "should have received route advertisement");
+    assert!(got_packet, "should have received IP packet");
+
+    let _ = done_tx.send(());
+    proxy_handle.await.unwrap();
+    driver_handle.abort();
+}

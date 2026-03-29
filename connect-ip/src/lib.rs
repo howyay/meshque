@@ -12,5 +12,8 @@ pub use capsule::route::{IpAddressRange, RouteAdvertisement};
 pub use client::{ConnectIpClient, ConnectIpClientSession};
 pub use error::Error;
 pub use proxy::{ConnectIpProxy, ConnectIpRequest};
-pub use session::{Capsule, ConnectIpSession};
+pub use session::{
+    Capsule, CapsuleReader, CapsuleWriter, ConnectIpSession, IpDatagramReceiver,
+    IpDatagramSender, SessionParts,
+};
 pub use types::IpVersion;
