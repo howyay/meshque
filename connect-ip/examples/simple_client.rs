@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let h3_conn = h3_quinn::Connection::new(quic_conn);
 
-    let mut client_session = ConnectIpClient::connect(h3_conn, "*", "*").await?;
+    let mut client_session = ConnectIpClient::connect(h3_conn, "*", "*", None).await?;
     println!("CONNECT-IP session established");
 
     // Drive h3 connection in background

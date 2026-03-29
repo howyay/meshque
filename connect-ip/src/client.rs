@@ -6,7 +6,7 @@ use h3_datagram::quic_traits::DatagramConnectionExt;
 use http::{Method, Request, StatusCode};
 
 use crate::error::Error;
-use crate::session::ConnectIpSession;
+use crate::session::{ConnectIpSession, StreamHolder};
 use crate::types;
 
 /// Client for initiating CONNECT-IP connections to a proxy.
@@ -17,16 +17,16 @@ impl ConnectIpClient {
     ///
     /// `target` is the scope of the tunnel: a hostname, IP prefix, or "*" for wildcard.
     /// `ip_protocol` is the IP protocol scope: a number 0-255 or "*" for all.
+    /// `max_datagram_size` is the value of `quinn::Connection::max_datagram_size()` if known,
+    /// used to compute `tunnel_mtu()`. Pass `None` if unavailable.
     ///
-    /// Returns the session for IP packet exchange and the h3 client connection driver
-    /// which must be polled (e.g. via `tokio::spawn(async move { driver.wait_idle().await })`).
-    ///
-    /// Also returns a `SendRequest` handle — you must keep this alive for the duration of the
-    /// session, otherwise the h3 connection will close.
+    /// Returns the session and a client handle bundle. The h3 driver must be polled in a
+    /// background task, and the send_request handle must be kept alive.
     pub async fn connect<C>(
         quic_conn: C,
         target: &str,
         ip_protocol: &str,
+        max_datagram_size: Option<usize>,
     ) -> Result<ConnectIpClientSession<C>, Error>
     where
         C: quic::Connection<Bytes> + DatagramConnectionExt<Bytes>,
@@ -72,7 +72,13 @@ impl ConnectIpClient {
         let dg_sender = h3_conn.get_datagram_sender(stream_id);
         let dg_reader = h3_conn.get_datagram_reader();
 
-        let session = ConnectIpSession::new(stream_id, dg_sender, dg_reader);
+        let session = ConnectIpSession::new(
+            StreamHolder::Client(stream),
+            stream_id,
+            dg_sender,
+            dg_reader,
+            max_datagram_size,
+        );
 
         Ok(ConnectIpClientSession {
             session,
@@ -90,7 +96,7 @@ pub struct ConnectIpClientSession<C>
 where
     C: quic::Connection<Bytes> + DatagramConnectionExt<Bytes>,
 {
-    /// The CONNECT-IP session for IP packet exchange.
+    /// The CONNECT-IP session for IP packet and capsule exchange.
     pub session: ConnectIpSession<C>,
     /// The h3 client connection driver. Must be polled via `driver.wait_idle().await`
     /// in a background task.

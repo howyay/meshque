@@ -28,7 +28,7 @@ async fn client_connects_to_proxy_and_exchanges_packets() {
         assert_eq!(request.target, "*");
         assert_eq!(request.ip_protocol, "*");
 
-        let mut session = request.accept(&conn).await.unwrap();
+        let mut session = request.accept(&conn, None).await.unwrap();
 
         // Proxy receives an IP packet from client
         let packet = session.recv_ip_packet().await.unwrap();
@@ -51,7 +51,7 @@ async fn client_connects_to_proxy_and_exchanges_packets() {
     let h3_conn = h3_quinn::Connection::new(quic_conn);
 
     let mut client_session =
-        ConnectIpClient::connect(h3_conn, "*", "*").await.unwrap();
+        ConnectIpClient::connect(h3_conn, "*", "*", None).await.unwrap();
 
     // Drive h3 connection in background
     let driver_handle = tokio::spawn(async move {
@@ -98,7 +98,7 @@ async fn multiple_packets_roundtrip() {
             .unwrap();
 
         let request = ConnectIpProxy::accept(&mut conn).await.unwrap().unwrap();
-        let mut session = request.accept(&conn).await.unwrap();
+        let mut session = request.accept(&conn, None).await.unwrap();
 
         // Echo 10 packets
         for _ in 0..10 {
@@ -117,7 +117,7 @@ async fn multiple_packets_roundtrip() {
         .unwrap();
 
     let h3_conn = h3_quinn::Connection::new(quic_conn);
-    let mut client_session = ConnectIpClient::connect(h3_conn, "*", "*").await.unwrap();
+    let mut client_session = ConnectIpClient::connect(h3_conn, "*", "*", None).await.unwrap();
 
     let driver_handle = tokio::spawn(async move {
         let mut driver = client_session.driver;

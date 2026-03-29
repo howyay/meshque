@@ -7,7 +7,7 @@ use h3_datagram::quic_traits::DatagramConnectionExt;
 use http::{Method, Response, StatusCode};
 
 use crate::error::Error;
-use crate::session::ConnectIpSession;
+use crate::session::{ConnectIpSession, StreamHolder};
 
 /// Accepts incoming CONNECT-IP requests from an h3 server connection.
 pub struct ConnectIpProxy;
@@ -82,26 +82,37 @@ where
 {
     /// Accept the CONNECT-IP request and create a session.
     ///
-    /// Sends a 200 OK response and returns a session for IP packet exchange.
+    /// Sends a 200 OK response and returns a session for IP packet and capsule exchange.
     /// The `conn` parameter is the h3 server connection, needed to set up datagram handlers.
+    ///
+    /// `max_datagram_size` is the value of `quinn::Connection::max_datagram_size()` if known,
+    /// used to compute `tunnel_mtu()`. Pass `None` if unavailable.
     pub async fn accept(
-        mut self,
+        self,
         conn: &h3::server::Connection<C, Bytes>,
+        max_datagram_size: Option<usize>,
     ) -> Result<ConnectIpSession<C>, Error> {
+        let mut stream = self.stream;
         let resp = Response::builder()
             .status(StatusCode::OK)
             .body(())
             .unwrap();
-        self.stream
+        stream
             .send_response(resp)
             .await
             .map_err(|e| Error::ProtocolViolation(format!("failed to send 200 OK: {e}")))?;
 
-        let stream_id = self.stream.send_id();
+        let stream_id = stream.send_id();
         let dg_sender = conn.get_datagram_sender(stream_id);
         let dg_reader = conn.get_datagram_reader();
 
-        Ok(ConnectIpSession::new(stream_id, dg_sender, dg_reader))
+        Ok(ConnectIpSession::new(
+            StreamHolder::Server(stream),
+            stream_id,
+            dg_sender,
+            dg_reader,
+            max_datagram_size,
+        ))
     }
 
     /// Reject the CONNECT-IP request with a given status code.

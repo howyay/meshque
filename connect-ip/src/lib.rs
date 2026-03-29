@@ -7,8 +7,10 @@ pub mod session;
 pub mod types;
 pub mod varint;
 
-pub use client::ConnectIpClient;
+pub use capsule::address::{AddressAssign, AddressRequest, AssignedAddress, RequestedAddress};
+pub use capsule::route::{IpAddressRange, RouteAdvertisement};
+pub use client::{ConnectIpClient, ConnectIpClientSession};
 pub use error::Error;
 pub use proxy::{ConnectIpProxy, ConnectIpRequest};
-pub use session::ConnectIpSession;
+pub use session::{Capsule, ConnectIpSession};
 pub use types::IpVersion;

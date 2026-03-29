@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             request.target, request.ip_protocol
         );
 
-        let mut session = request.accept(&conn).await?;
+        let mut session = request.accept(&conn, None).await?;
         println!("Session established — echoing IP packets");
 
         // Echo loop
