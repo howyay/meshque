@@ -1,0 +1,30 @@
+[package]
+name = "connect-ip"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "RFC 9484 CONNECT-IP implementation over HTTP/3"
+repository = "https://github.com/TODO/connect-ip"
+
+[dependencies]
+quinn = "0.11"
+h3 = "0.0.8"
+h3-quinn = "0.0.9"
+h3-datagram = "0.0.2"
+tokio = { version = "1", features = ["full"] }
+bytes = "1"
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+rcgen = "0.13"
+rustls = { version = "0.23", features = ["ring"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[features]
+interop = []
+
+[[bench]]
+name = "throughput"
+harness = false
