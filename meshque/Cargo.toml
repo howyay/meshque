@@ -1,0 +1,45 @@
+[package]
+name = "meshque"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Mesh VPN over MASQUE CONNECT-IP (RFC 9484)"
+
+[dependencies]
+# Our CONNECT-IP crate
+connect-ip = { path = "../connect-ip" }
+
+# QUIC / HTTP/3
+quinn = "0.11"
+h3 = { git = "https://github.com/hyperium/h3", features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+h3-quinn = { git = "https://github.com/hyperium/h3", features = ["datagram"] }
+h3-datagram = { git = "https://github.com/hyperium/h3" }
+
+# TLS
+rustls = { version = "0.23", features = ["ring"] }
+rcgen = "0.13"
+
+# TUN device
+tun-rs = { version = "2", features = ["async"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP client (for signaling server)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Utilities
+bytes = "1"
+http = "1"
+anyhow = "1"
