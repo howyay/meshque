@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -40,6 +41,8 @@ jobs:
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
         with:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/meshque
