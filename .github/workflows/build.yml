@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: meshque-linux-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: meshque-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build -p meshque --release --target ${{ matrix.target }}
+
+      - name: Run connect-ip tests
+        run: cargo test -p connect-ip --target ${{ matrix.target }}
+
+      - name: Run meshque tests
+        run: cargo test -p meshque --target ${{ matrix.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/meshque
+
+  signaling-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signaling
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: signaling/pnpm-lock.yaml
+      - run: pnpm install
+      - run: pnpm test
+      - run: pnpm typecheck
