@@ -1,0 +1,7 @@
+name = "meshque-signaling"
+main = "entry/workers.ts"
+compatibility_date = "2024-12-01"
+
+[[kv_namespaces]]
+binding = "ROOMS_KV"
+id = "bb8656b5c3f14820ba62b3bef758c372"

@@ -34,7 +34,7 @@ enum Commands {
         role: String,
 
         /// Signaling server URL
-        #[arg(long, default_value = "https://signal.meshque.dev")]
+        #[arg(long, default_value = "https://meshque-signaling.haoye.workers.dev")]
         signal_server: String,
 
         /// Local listen address for proxy mode
