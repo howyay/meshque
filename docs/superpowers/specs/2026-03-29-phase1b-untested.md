@@ -1,6 +1,6 @@
 # Phase 1b — Untested Components
 
-Items that require root/CAP_NET_ADMIN, real network infrastructure, or Phase 1c completion.
+Items that require root/CAP_NET_ADMIN, real network infrastructure, or multi-machine setup.
 
 ## Requires Root (manual testing)
 
@@ -13,7 +13,7 @@ Items that require root/CAP_NET_ADMIN, real network infrastructure, or Phase 1c 
 | Packet loop (tunnel→TUN) | CONNECT-IP datagram delivered to TUN | `ping -I meshque1 100.64.0.1` from initiator |
 | Two-process loopback | Two `meshque` on localhost with separate TUNs | Both `sudo`, verify bidirectional ping |
 
-### Manual test script
+### Manual test script (direct mode)
 
 ```bash
 # Terminal 1 (responder)
@@ -27,29 +27,45 @@ ping -c 3 100.64.0.1  # from initiator's perspective
 ping -c 3 100.64.0.2  # from responder's perspective
 ```
 
-## Requires Phase 1c (signaling server)
+## Requires Multi-Machine Setup
 
 | Component | What to test |
 |---|---|
-| Signaling client (`signaling.rs`) | Not yet implemented — stub only |
-| Room join/poll/exchange flow | Peer discovers partner via signaling |
-| Cert fingerprint pinning | Client verifies server cert matches fingerprint from signaling |
+| Cross-network tunnel | Two machines on different networks, signaling → STUN → hole punch → tunnel |
+| NAT hole punching (real NAT) | Both peers behind different NATs, verify UDP mapping creation |
+| Symmetric NAT warning | One or both peers behind symmetric NAT — verify warning message |
+| Cert fingerprint pinning (cross-network) | Initiator verifies responder cert fingerprint from signaling |
 
-## Requires Real Network / NAT
+### Manual test script (signaling mode)
 
-| Component | What to test |
+```bash
+# Start signaling server
+cd signaling && pnpm dev  # runs on :8787
+
+# Machine A
+meshque connect my-secret-room --signal-server http://signal-server:8787 -v
+
+# Machine B
+meshque connect my-secret-room --signal-server http://signal-server:8787 -v
+
+# Both machines should get virtual IPs and be able to ping each other
+```
+
+## Verified (no root needed)
+
+| Component | Verified by |
 |---|---|
-| STUN binding | Discover reflexive address via public STUN server |
-| NAT type detection | Cone vs symmetric classification |
-| UDP hole punching | Simultaneous send to create NAT mapping |
-| Cross-network tunnel | Two machines on different networks, tunnel works |
+| STUN discovery (3 servers) | Smoke test — discovers public IP, classifies NAT as cone |
+| Signaling client (join/poll/exchange) | Smoke test — two processes through local signaling server |
+| Cert fingerprint generation | Smoke test — sha256 fingerprints generated and exchanged |
+| Hole punch packet burst | Smoke test — 10 UDP packets sent to peer's reflexive addr |
+| QUIC + H3 + CONNECT-IP handshake | Integration tests (4 tests in connection_flow.rs) |
+| ADDRESS_ASSIGN / ROUTE_ADVERTISEMENT | Integration tests + smoke test |
+| Graceful shutdown (Ctrl-C) | SIGINT handler in main.rs |
 
-## Requires Implementation (not yet built)
+## Not Yet Implemented
 
 | Component | Status |
 |---|---|
 | Reconnection logic | Not implemented — connection drop = process exit |
-| Cert fingerprint pinning | Certs generated but fingerprint not verified against signaling data |
-| Graceful shutdown (SIGTERM) | Not implemented — process just exits |
-| `nat.rs` | Not yet written (Phase 1b spec lists it) |
-| `signaling.rs` | Stub — no HTTP client logic |
+| Exponential backoff | Not implemented |
