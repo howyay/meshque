@@ -2,6 +2,7 @@ mod helpers;
 
 use connect_ip::client::ConnectIpClient;
 use connect_ip::proxy::ConnectIpProxy;
+use http::{Request, StatusCode};
 
 #[tokio::test]
 async fn client_connects_to_proxy_and_exchanges_packets() {
@@ -136,5 +137,81 @@ async fn multiple_packets_roundtrip() {
     let _ = done_tx.send(());
     proxy_handle.await.unwrap();
     drop(client_session.session);
+    driver_handle.abort();
+}
+
+/// Verify that a non-CONNECT-IP request gets 400 and the proxy continues
+/// to accept the next valid CONNECT-IP request.
+#[tokio::test]
+async fn non_connect_ip_request_rejected_with_400() {
+    let (certs, key) = helpers::generate_test_certs();
+    let (server_endpoint, server_addr) = helpers::make_server_endpoint(certs.clone(), key);
+    let client_endpoint = helpers::make_client_endpoint(&certs);
+
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Spawn proxy — it loops rejecting bad requests until a valid CONNECT-IP arrives
+    let proxy_handle = tokio::spawn(async move {
+        let incoming = server_endpoint.accept().await.unwrap();
+        let quic_conn = incoming.await.unwrap();
+        let h3_conn = h3_quinn::Connection::new(quic_conn);
+
+        let mut conn = h3::server::builder()
+            .enable_extended_connect(true)
+            .enable_datagram(true)
+            .build(h3_conn)
+            .await
+            .unwrap();
+
+        // This will reject the GET, then accept the CONNECT-IP
+        let request = ConnectIpProxy::accept(&mut conn).await.unwrap().unwrap();
+        let _session = request.accept(&conn, None).await.unwrap();
+
+        // Just hold the session alive — no packet exchange needed for this test
+        let _ = done_rx.await;
+    });
+
+    // Client side: build h3 connection manually
+    let quic_conn = client_endpoint
+        .connect(server_addr, "localhost")
+        .unwrap()
+        .await
+        .unwrap();
+
+    let h3_conn = h3_quinn::Connection::new(quic_conn);
+    let (h3_client_conn, mut send_request) = h3::client::builder()
+        .enable_extended_connect(true)
+        .enable_datagram(true)
+        .build::<_, _, bytes::Bytes>(h3_conn)
+        .await
+        .unwrap();
+
+    // Drive h3 in background
+    let driver_handle = tokio::spawn(async move {
+        let mut driver = h3_client_conn;
+        driver.wait_idle().await;
+    });
+
+    // Step 1: Send a plain GET request (not CONNECT-IP) — proxy should reject with 400
+    let get_req = Request::get("https://localhost/hello").body(()).unwrap();
+    let mut get_stream = send_request.send_request(get_req).await.unwrap();
+    get_stream.finish().await.unwrap();
+    let get_resp = get_stream.recv_response().await.unwrap();
+    assert_eq!(get_resp.status(), StatusCode::BAD_REQUEST);
+
+    // Step 2: Send valid CONNECT-IP — proxy should accept with 200
+    let uri = "https://localhost/.well-known/masque/ip/*/*/";
+    let connect_req = Request::builder()
+        .method(http::Method::CONNECT)
+        .uri(uri)
+        .extension(h3::ext::Protocol::CONNECT_IP)
+        .body(())
+        .unwrap();
+    let mut connect_stream = send_request.send_request(connect_req).await.unwrap();
+    let connect_resp = connect_stream.recv_response().await.unwrap();
+    assert_eq!(connect_resp.status(), StatusCode::OK);
+
+    let _ = done_tx.send(());
+    proxy_handle.await.unwrap();
     driver_handle.abort();
 }
