@@ -20,8 +20,11 @@ cd connect-ip && cargo check
 ## Key Docs
 
 - Roadmap: `docs/superpowers/specs/2026-03-27-meshque-roadmap.md`
-- Phase 1a Spec: `docs/superpowers/specs/2026-03-27-connect-ip-crate-design.md`
-- Implementation Plan: `docs/superpowers/plans/2026-03-28-connect-ip-crate.md`
+- Phase 1a Spec (DONE): `docs/superpowers/specs/2026-03-27-connect-ip-crate-design.md`
+- Phase 1a Plan (DONE): `docs/superpowers/plans/2026-03-28-connect-ip-crate.md`
+- Phase 1b Spec: `docs/superpowers/specs/2026-03-29-peer-binary-design.md`
+- Phase 1c Spec: `docs/superpowers/specs/2026-03-29-signaling-server-design.md`
+- WARP Analysis: `docs/superpowers/specs/2026-03-29-warp-interop-analysis.md`
 
 ## Conventions
 
