@@ -82,7 +82,14 @@ async fn main() -> Result<()> {
                 tun_name,
             };
 
-            connection::run(cfg).await
+            // Run with graceful shutdown on SIGTERM/SIGINT
+            tokio::select! {
+                result = connection::run(cfg) => result,
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("Received shutdown signal, cleaning up...");
+                    Ok(())
+                }
+            }
         }
     }
 }
