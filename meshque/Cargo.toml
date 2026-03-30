@@ -6,8 +6,8 @@ license = "MIT OR Apache-2.0"
 description = "Mesh VPN over MASQUE CONNECT-IP (RFC 9484)"
 
 [dependencies]
-# Our CONNECT-IP crate
-connect-ip = { path = "../connect-ip" }
+# Our CONNECT-IP crate (public repo: https://github.com/howyay/connect-ip)
+connect-ip = { git = "https://github.com/howyay/connect-ip" }
 
 # QUIC / HTTP/3
 quinn = "0.11"

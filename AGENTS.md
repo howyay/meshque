@@ -4,7 +4,6 @@ A mesh VPN that tunnels IP traffic over MASQUE (CONNECT-IP / RFC 9484) on HTTP/3
 
 ## Project Structure
 
-- `connect-ip/` — Standalone Rust crate implementing RFC 9484 (CONNECT-IP) over HTTP/3
 - `meshque/` — Peer binary (Phase 1b) — TUN + CONNECT-IP tunnel engine
 - `signaling/` — Signaling server (Phase 1c) — TypeScript/Hono, platform-agnostic
 - `docs/superpowers/specs/` — Design specs
@@ -12,15 +11,20 @@ A mesh VPN that tunnels IP traffic over MASQUE (CONNECT-IP / RFC 9484) on HTTP/3
 
 ## Build
 
-### Rust (connect-ip + meshque)
+### Rust (meshque)
 
-Requires Rust toolchain. On NixOS, `cc` linker must be in PATH — use the `shell.nix` in `connect-ip/` or `nix-shell -p gcc`.
+Requires Rust toolchain. On NixOS, `cc` linker must be in PATH — `nix-shell -p gcc`.
 
 ```bash
 export PATH="/nix/store/kbw2j1vag664b3sj3rjwz9v53cqx87sb-gcc-wrapper-15.2.0/bin:$PATH"
-cargo test --workspace  # runs all Rust tests
+cargo test -p meshque   # run meshque tests
 cargo build -p meshque  # build peer binary
 ```
+
+### connect-ip crate (separate repo)
+
+Public repo: https://github.com/howyay/connect-ip
+Used as a git dependency by meshque.
 
 ### TypeScript (signaling)
 
@@ -32,8 +36,7 @@ pnpm dev  # starts dev server on :8787
 ## Key Docs
 
 - Roadmap: `docs/superpowers/specs/2026-03-27-meshque-roadmap.md`
-- Phase 1a Spec (DONE): `docs/superpowers/specs/2026-03-27-connect-ip-crate-design.md`
-- Phase 1a Plan (DONE): `docs/superpowers/plans/2026-03-28-connect-ip-crate.md`
+- Phase 1a: DONE — separated to https://github.com/howyay/connect-ip
 - Phase 1b Spec (IN PROGRESS): `docs/superpowers/specs/2026-03-29-peer-binary-design.md`
 - Phase 1b Untested: `docs/superpowers/specs/2026-03-29-phase1b-untested.md`
 - Phase 1c Spec (DONE): `docs/superpowers/specs/2026-03-29-signaling-server-design.md`

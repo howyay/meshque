@@ -33,9 +33,6 @@ jobs:
       - name: Build
         run: cargo build -p meshque --release --target ${{ matrix.target }}
 
-      - name: Run connect-ip tests
-        run: cargo test -p connect-ip --target ${{ matrix.target }}
-
       - name: Run meshque tests
         run: cargo test -p meshque --target ${{ matrix.target }}
 
