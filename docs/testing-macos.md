@@ -16,6 +16,29 @@ cargo build -p meshque --release
 cp target/release/meshque .
 ```
 
+## Helper scripts
+
+You can direct-download the macOS helper scripts from the repo root:
+
+```bash
+curl -O https://raw.githubusercontent.com/howyay/meshque/main/macos-up.sh
+curl -O https://raw.githubusercontent.com/howyay/meshque/main/macos-down.sh
+chmod +x macos-up.sh macos-down.sh
+```
+
+Start meshque in the background:
+
+```bash
+./macos-up.sh cross-217246a4 '<token>'
+tail -f /tmp/meshque-mac-peer.log
+```
+
+Stop it later:
+
+```bash
+./macos-down.sh
+```
+
 ## Test
 
 You need two machines on different networks (or one macOS + one Linux).
