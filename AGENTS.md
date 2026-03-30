@@ -45,8 +45,7 @@ pnpm dev  # starts dev server on :8787
 
 ## Conventions
 
-- Project folder is `ipowt` but the project name is **meshque** in all docs
+- Project/repository name is **meshque** in all docs; local checkout folder may vary
 - Rust for peer software, TypeScript for signaling server
 - MASQUE CONNECT-IP (RFC 9484) as transport, not WebTransport
-
 
