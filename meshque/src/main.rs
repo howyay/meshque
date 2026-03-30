@@ -12,6 +12,14 @@ use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+fn default_tun_name() -> String {
+    if cfg!(target_os = "macos") {
+        "utun9".to_string()
+    } else {
+        "meshque0".to_string()
+    }
+}
+
 /// meshque — mesh VPN over MASQUE CONNECT-IP
 #[derive(Parser)]
 #[command(name = "meshque", about = "Mesh VPN over MASQUE CONNECT-IP (RFC 9484)")]
@@ -41,7 +49,7 @@ enum Commands {
         listen: String,
 
         /// TUN device name
-        #[arg(long, default_value = "meshque0")]
+        #[arg(long, default_value_t = default_tun_name())]
         tun_name: String,
 
         /// Path to the persistent peer identity file
@@ -118,7 +126,7 @@ enum Commands {
         listen: String,
 
         /// TUN device name
-        #[arg(long, default_value = "meshque0")]
+        #[arg(long, default_value_t = default_tun_name())]
         tun_name: String,
 
         /// Enable verbose logging

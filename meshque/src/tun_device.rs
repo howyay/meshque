@@ -18,19 +18,10 @@ pub fn create_tun(
         .ipv4(address, 32u8, None)
         .mtu(mtu)
         .build_async()
-        .with_context(|| format!("failed to create TUN device '{name}' (are you root?)"))?;
+        .with_context(|| format!("failed to create TUN device '{name}'"))?;
 
-    // Linux TUN devices are point-to-point — the kernel ignores SIOCSIFNETMASK,
-    // so no subnet route is created automatically.  Use source-based policy
-    // routing so that each peer's outbound mesh traffic goes through its own TUN
-    // (required when multiple peers share the same host, e.g. in testing).
-    let table = format!("{}", 100 + u32::from(address.octets()[3]));
-    let addr_str = address.to_string();
-    run_ip(&["rule", "add", "from", &addr_str, "table", &table])?;
-    run_ip(&["route", "add", "100.64.0.0/10", "dev", name, "table", &table])?;
-    // Fallback route in main table satisfies rp_filter (loose mode) without
-    // interfering with policy routing (which has higher priority).
-    run_ip(&["route", "add", "100.64.0.0/10", "dev", name, "metric", "9999"])?;
+    #[cfg(target_os = "linux")]
+    configure_linux_routes(name, address)?;
 
     info!(
         name,
@@ -43,6 +34,23 @@ pub fn create_tun(
     Ok(device)
 }
 
+#[cfg(target_os = "linux")]
+fn configure_linux_routes(name: &str, address: Ipv4Addr) -> Result<()> {
+    // Linux TUN devices are point-to-point — the kernel ignores SIOCSIFNETMASK,
+    // so no subnet route is created automatically. Use source-based policy
+    // routing so that each peer's outbound mesh traffic goes through its own TUN
+    // (required when multiple peers share the same host, e.g. in testing).
+    let table = format!("{}", 100 + u32::from(address.octets()[3]));
+    let addr_str = address.to_string();
+    run_ip(&["rule", "add", "from", &addr_str, "table", &table])?;
+    run_ip(&["route", "add", "100.64.0.0/10", "dev", name, "table", &table])?;
+    // Fallback route in main table satisfies rp_filter (loose mode) without
+    // interfering with policy routing (which has higher priority).
+    run_ip(&["route", "add", "100.64.0.0/10", "dev", name, "metric", "9999"])?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn run_ip(args: &[&str]) -> Result<()> {
     let output = Command::new("ip")
         .args(args)
