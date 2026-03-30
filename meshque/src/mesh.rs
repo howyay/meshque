@@ -163,7 +163,7 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
         }
     }
 
-    // Signaling poller — discover new peers every 30s
+    // Signaling poller — fast initially (every 2s for 60s), then slow (every 30s)
     let pt_for_poll = peer_table.clone();
     let tun_for_poll = tun.clone();
     let endpoint_for_poll = endpoint.clone();
@@ -174,8 +174,16 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
 
     let poll_handle = tokio::spawn(async move {
         let mut known_peers = connected_peers;
+        let start = std::time::Instant::now();
+
         loop {
-            tokio::time::sleep(Duration::from_secs(30)).await;
+            // Fast poll for first 60s, then slow
+            let interval = if start.elapsed() < Duration::from_secs(60) {
+                Duration::from_secs(2)
+            } else {
+                Duration::from_secs(30)
+            };
+            tokio::time::sleep(interval).await;
 
             match signaling::get_network_peers(
                 &cfg_server,
@@ -352,6 +360,8 @@ async fn connect_to_peer(
 }
 
 /// Handle an incoming QUIC connection (we are the proxy/responder).
+/// IMPORTANT: This function must keep the h3 server connection alive for the
+/// lifetime of the session. Dropping `conn` sends H3_NO_ERROR and kills the tunnel.
 async fn handle_incoming(
     incoming: quinn::Incoming,
     peer_table: PeerTable,
@@ -372,16 +382,19 @@ async fn handle_incoming(
         .context("connection closed before CONNECT-IP request")?;
 
     let session = request.accept(&conn, max_dg).await?;
+    info!("Accepted incoming CONNECT-IP session");
+
     let parts = session.into_parts();
 
-    // For incoming connections, we learn the peer IP from the first packet's source address.
-    // We hold the sender in an Option so we can move it into the peer table once we know the IP.
-    let sender = Some(parts.datagram_send);
-    let sender = Arc::new(tokio::sync::Mutex::new(sender));
+    // Hold the sender in an Arc<Mutex<Option>> so the recv task can register it
+    // once we learn the peer's IP from the first packet.
+    let sender = Arc::new(tokio::sync::Mutex::new(Some(parts.datagram_send)));
 
     let pt = peer_table.clone();
     let sender_for_task = sender.clone();
-    tokio::spawn(async move {
+
+    // Spawn the recv + TUN write loop. This task runs until the tunnel closes.
+    let recv_handle = tokio::spawn(async move {
         let mut recv = parts.datagram_recv;
         let mut peer_ip: Option<Ipv4Addr> = None;
 
@@ -393,11 +406,10 @@ async fn handle_incoming(
 
                         if peer_ip.is_none() {
                             peer_ip = Some(src_ip);
-                            // Register the sender now that we know the peer's IP
                             let mut guard = sender_for_task.lock().await;
                             if let Some(s) = guard.take() {
                                 pt.insert(src_ip, format!("incoming-{src_ip}"), s).await;
-                                info!(peer = %src_ip, "Incoming peer registered");
+                                info!(peer = %src_ip, "Incoming peer registered in routing table");
                             }
                         }
 
@@ -416,6 +428,10 @@ async fn handle_incoming(
             }
         }
     });
+
+    // Keep the h3 server connection alive by waiting for the recv task to finish.
+    // If we return early, `conn` is dropped → H3_NO_ERROR → tunnel dies.
+    recv_handle.await.ok();
 
     Ok(())
 }

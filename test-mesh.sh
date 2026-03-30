@@ -59,7 +59,8 @@ $BINARY up --network "$NETWORK" --token "$TOKEN" \
     --signal-server "$SIGNAL" --listen 0.0.0.0:4003 --tun-name mesh3 \
     --advertise-endpoint 127.0.0.1:4003 -v &
 P3=$!
-sleep 8
+echo "Waiting for peers to discover each other and connect..."
+sleep 15
 
 echo ""
 echo "=== Testing connectivity ==="
