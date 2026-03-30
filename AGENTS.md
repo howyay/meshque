@@ -37,7 +37,8 @@ pnpm dev  # starts dev server on :8787
 
 - Roadmap: `docs/superpowers/specs/2026-03-27-meshque-roadmap.md`
 - Phase 1a: DONE — separated to https://github.com/howyay/connect-ip-rs
-- Phase 1b Spec (IN PROGRESS): `docs/superpowers/specs/2026-03-29-peer-binary-design.md`
+- Phase 1b Spec (DONE): `docs/superpowers/specs/2026-03-29-peer-binary-design.md`
+- Phase 2 Spec (IN PROGRESS): `docs/superpowers/specs/2026-03-29-mesh-mvp-design.md`
 - Phase 1b Untested: `docs/superpowers/specs/2026-03-29-phase1b-untested.md`
 - Phase 1c Spec (DONE): `docs/superpowers/specs/2026-03-29-signaling-server-design.md`
 - WARP Analysis: `docs/superpowers/specs/2026-03-29-warp-interop-analysis.md`

@@ -4,6 +4,166 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 2: Mesh network signaling
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Peer info from the network signaling API.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NetworkPeerInfo {
+    pub peer_id: String,
+    pub assigned_ip: String,
+    pub cert_fingerprint: String,
+    pub endpoint: Option<String>,
+    pub nat_type: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct NetworkJoinResponse {
+    status: String,
+    assigned_ip: Option<String>,
+    peers: Option<Vec<NetworkPeerInfo>>,
+    message: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct NetworkExchangeResponse {
+    status: String,
+    peers: Option<Vec<NetworkPeerInfo>>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct NetworkPeersResponse {
+    status: String,
+    assigned_ip: Option<String>,
+    peers: Option<Vec<NetworkPeerInfo>>,
+    message: Option<String>,
+}
+
+/// Join a mesh network. Returns (assigned_ip, list of existing peers).
+pub async fn join_network(
+    server_url: &str,
+    network: &str,
+    token: &str,
+    peer_id: &str,
+    cert_fingerprint: &str,
+) -> Result<(String, Vec<NetworkPeerInfo>)> {
+    let client = reqwest::Client::new();
+    let base = server_url.trim_end_matches('/');
+
+    let res: NetworkJoinResponse = client
+        .post(format!("{base}/api/networks/join"))
+        .json(&serde_json::json!({
+            "network": network,
+            "token": token,
+            "peer_id": peer_id,
+            "cert_fingerprint": cert_fingerprint,
+        }))
+        .send()
+        .await
+        .context("failed to reach signaling server")?
+        .json()
+        .await?;
+
+    if res.status != "joined" {
+        bail!(
+            "failed to join network: {}",
+            res.message.unwrap_or_else(|| res.status)
+        );
+    }
+
+    let ip = res.assigned_ip.context("no assigned_ip in join response")?;
+    let peers = res.peers.unwrap_or_default();
+    Ok((ip, peers))
+}
+
+/// Submit our STUN-discovered endpoint to the network.
+pub async fn exchange_endpoint(
+    server_url: &str,
+    network: &str,
+    token: &str,
+    peer_id: &str,
+    endpoint: &str,
+    nat_type: &str,
+) -> Result<Vec<NetworkPeerInfo>> {
+    let client = reqwest::Client::new();
+    let base = server_url.trim_end_matches('/');
+
+    let res: NetworkExchangeResponse = client
+        .post(format!("{base}/api/networks/exchange"))
+        .json(&serde_json::json!({
+            "network": network,
+            "token": token,
+            "peer_id": peer_id,
+            "endpoint": endpoint,
+            "nat_type": nat_type,
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    Ok(res.peers.unwrap_or_default())
+}
+
+/// Poll for updated peer list (also serves as heartbeat).
+pub async fn get_network_peers(
+    server_url: &str,
+    network: &str,
+    token: &str,
+    peer_id: &str,
+) -> Result<Vec<NetworkPeerInfo>> {
+    let client = reqwest::Client::new();
+    let base = server_url.trim_end_matches('/');
+
+    let res: NetworkPeersResponse = client
+        .get(format!(
+            "{base}/api/networks/peers?network={network}&token={token}&peer_id={peer_id}"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if res.status != "ok" {
+        bail!(
+            "failed to get peers: {}",
+            res.message.unwrap_or_else(|| res.status)
+        );
+    }
+
+    Ok(res.peers.unwrap_or_default())
+}
+
+/// Leave the network.
+pub async fn leave_network(
+    server_url: &str,
+    network: &str,
+    token: &str,
+    peer_id: &str,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let base = server_url.trim_end_matches('/');
+
+    let _ = client
+        .post(format!("{base}/api/networks/leave"))
+        .json(&serde_json::json!({
+            "network": network,
+            "token": token,
+            "peer_id": peer_id,
+        }))
+        .send()
+        .await;
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 1: Point-to-point room signaling (unchanged)
+// ═══════════════════════════════════════════════════════════════════════
+
 /// Information about the local peer to send to the signaling server.
 pub struct LocalPeer {
     pub peer_id: String,
@@ -12,6 +172,7 @@ pub struct LocalPeer {
 
 /// Information about the remote peer received from the signaling server.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct RemotePeer {
     pub peer_id: String,
     pub cert_fingerprint: String,
@@ -32,11 +193,11 @@ struct JoinRequest<'a> {
     cert_fingerprint: &'a str,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct JoinResponse {
     status: String,
     role: Option<String>,
-    #[allow(dead_code)]
     peer_id: Option<String>,
     peer: Option<PeerInfo>,
 }
@@ -50,6 +211,7 @@ struct ExchangeRequest<'a> {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ExchangeResponse {
     status: String,
     peer_endpoint: Option<String>,
@@ -58,6 +220,7 @@ struct ExchangeResponse {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct PollResponse {
     status: String,
     #[allow(dead_code)]

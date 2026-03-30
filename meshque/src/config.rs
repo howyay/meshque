@@ -22,18 +22,21 @@ impl FromStr for Role {
     }
 }
 
-/// Configuration for a meshque connection.
+/// Configuration for Phase 1 point-to-point connection.
 pub struct Config {
-    /// Room code for signaling server (None if using --direct).
     pub room_code: Option<String>,
-    /// Direct peer address (skips signaling).
     pub direct_addr: Option<String>,
-    /// Role: initiator (connects to peer) or responder (listens for peer).
     pub role: Role,
-    /// Signaling server URL.
     pub signal_server: String,
-    /// Local listen address for proxy/responder mode.
     pub listen_addr: SocketAddr,
-    /// TUN device name.
+    pub tun_name: String,
+}
+
+/// Configuration for Phase 2 mesh networking.
+pub struct MeshConfig {
+    pub network: String,
+    pub token: String,
+    pub signal_server: String,
+    pub listen_addr: SocketAddr,
     pub tun_name: String,
 }

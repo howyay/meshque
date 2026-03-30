@@ -454,7 +454,7 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAnyCert {
 }
 
 #[derive(Debug)]
-struct FingerprintVerifier(String);
+pub(crate) struct FingerprintVerifier(pub(crate) String);
 
 impl rustls::client::danger::ServerCertVerifier for FingerprintVerifier {
     fn verify_server_cert(
