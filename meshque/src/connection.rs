@@ -8,12 +8,12 @@ use ring::digest;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tracing::{error, info, warn};
 
-use connect_ip::capsule::address::{AddressAssign, AssignedAddress};
-use connect_ip::capsule::route::{IpAddressRange, RouteAdvertisement};
-use connect_ip::client::ConnectIpClient;
-use connect_ip::proxy::ConnectIpProxy;
-use connect_ip::session::ConnectIpSession;
-use connect_ip::types::IpVersion;
+use connect_ip_rs::capsule::address::{AddressAssign, AssignedAddress};
+use connect_ip_rs::capsule::route::{IpAddressRange, RouteAdvertisement};
+use connect_ip_rs::client::ConnectIpClient;
+use connect_ip_rs::proxy::ConnectIpProxy;
+use connect_ip_rs::session::ConnectIpSession;
+use connect_ip_rs::types::IpVersion;
 
 use crate::config::{Config, Role};
 use crate::nat;
@@ -359,7 +359,7 @@ async fn run_initiator(
         .await?
         .context("expected ADDRESS_ASSIGN capsule")?;
     let local_addr = match capsule {
-        connect_ip::Capsule::AddressAssign(assign) => {
+        connect_ip_rs::Capsule::AddressAssign(assign) => {
             let addr = assign
                 .addresses
                 .first()
@@ -379,7 +379,7 @@ async fn run_initiator(
         .await?
         .context("expected ROUTE_ADVERTISEMENT capsule")?;
     match capsule {
-        connect_ip::Capsule::RouteAdvertisement(routes) => {
+        connect_ip_rs::Capsule::RouteAdvertisement(routes) => {
             info!(ranges = routes.ranges.len(), "Received ROUTE_ADVERTISEMENT");
         }
         other => bail!("expected ROUTE_ADVERTISEMENT, got {:?}", other),

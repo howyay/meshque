@@ -287,9 +287,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "connect-ip"
+name = "connect-ip-rs"
 version = "0.1.0"
-source = "git+https://github.com/howyay/connect-ip#38124c8b1963cd438f6dc37c3568e0f0b72f7b9d"
+source = "git+https://github.com/howyay/connect-ip-rs#443369e8bd9ebabe1cb17d3d42be4ec167cbc203"
 dependencies = [
  "bytes",
  "h3",
@@ -790,9 +790,9 @@ checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
 
 [[package]]
 name = "iri-string"
-version = "0.7.11"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8e7418f59cc01c88316161279a7f665217ae316b388e58a0d10e29f54f1e5eb"
+checksum = "25e659a4bb38e810ebc252e53b5814ff908a8c58c2a9ce2fae1bbec24cbf4e20"
 dependencies = [
  "memchr",
  "serde",
@@ -962,7 +962,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "clap",
- "connect-ip",
+ "connect-ip-rs",
  "h3",
  "h3-datagram",
  "h3-quinn",

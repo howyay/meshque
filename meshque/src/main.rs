@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
         } => {
             // Initialize logging
             let filter = if verbose {
-                EnvFilter::new("meshque=debug,connect_ip=debug,quinn=info,h3=info")
+                EnvFilter::new("meshque=debug,connect_ip_rs=debug,quinn=info,h3=info")
             } else {
                 EnvFilter::new("meshque=info")
             };

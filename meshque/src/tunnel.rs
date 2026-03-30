@@ -1,6 +1,6 @@
 use anyhow::Result;
 use bytes::Bytes;
-use connect_ip::session::ConnectIpSession;
+use connect_ip_rs::session::ConnectIpSession;
 use h3::quic;
 use h3_datagram::quic_traits::DatagramConnectionExt;
 use tracing::{debug, error, info};

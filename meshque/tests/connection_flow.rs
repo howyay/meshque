@@ -8,12 +8,12 @@ use std::sync::Arc;
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
-use connect_ip::capsule::address::{AddressAssign, AssignedAddress};
-use connect_ip::capsule::route::{IpAddressRange, RouteAdvertisement};
-use connect_ip::client::ConnectIpClient;
-use connect_ip::proxy::ConnectIpProxy;
-use connect_ip::session::Capsule;
-use connect_ip::types::IpVersion;
+use connect_ip_rs::capsule::address::{AddressAssign, AssignedAddress};
+use connect_ip_rs::capsule::route::{IpAddressRange, RouteAdvertisement};
+use connect_ip_rs::client::ConnectIpClient;
+use connect_ip_rs::proxy::ConnectIpProxy;
+use connect_ip_rs::session::Capsule;
+use connect_ip_rs::types::IpVersion;
 
 fn setup_crypto() {
     rustls::crypto::ring::default_provider()

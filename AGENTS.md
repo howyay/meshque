@@ -23,7 +23,7 @@ cargo build -p meshque  # build peer binary
 
 ### connect-ip crate (separate repo)
 
-Public repo: https://github.com/howyay/connect-ip
+Public repo: https://github.com/howyay/connect-ip-rs
 Used as a git dependency by meshque.
 
 ### TypeScript (signaling)
@@ -36,7 +36,7 @@ pnpm dev  # starts dev server on :8787
 ## Key Docs
 
 - Roadmap: `docs/superpowers/specs/2026-03-27-meshque-roadmap.md`
-- Phase 1a: DONE — separated to https://github.com/howyay/connect-ip
+- Phase 1a: DONE — separated to https://github.com/howyay/connect-ip-rs
 - Phase 1b Spec (IN PROGRESS): `docs/superpowers/specs/2026-03-29-peer-binary-design.md`
 - Phase 1b Untested: `docs/superpowers/specs/2026-03-29-phase1b-untested.md`
 - Phase 1c Spec (DONE): `docs/superpowers/specs/2026-03-29-signaling-server-design.md`
