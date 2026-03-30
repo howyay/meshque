@@ -43,6 +43,10 @@ enum Commands {
         #[arg(long, default_value = "meshque0")]
         tun_name: String,
 
+        /// Override advertised endpoint (for local/LAN testing)
+        #[arg(long)]
+        advertise_endpoint: Option<String>,
+
         /// Enable verbose logging
         #[arg(short, long)]
         verbose: bool,
@@ -129,6 +133,7 @@ async fn main() -> Result<()> {
             signal_server,
             listen,
             tun_name,
+            advertise_endpoint,
             verbose,
         } => {
             let filter = if verbose {
@@ -144,6 +149,9 @@ async fn main() -> Result<()> {
                 signal_server,
                 listen_addr: listen.parse()?,
                 tun_name,
+                advertise_endpoint: advertise_endpoint
+                    .map(|e| e.parse())
+                    .transpose()?,
             };
 
             tokio::select! {

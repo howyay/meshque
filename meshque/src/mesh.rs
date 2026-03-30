@@ -49,10 +49,15 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
     let local_ip: Ipv4Addr = assigned_ip.parse().context("invalid assigned IP")?;
     info!(ip = %local_ip, peers = initial_peers.len(), "Joined network '{}'", cfg.network);
 
-    // STUN discovery
+    // Endpoint discovery: use override if provided, otherwise STUN
     let socket = tokio::net::UdpSocket::bind(&cfg.listen_addr).await?;
-    let stun_result = nat::stun_discover(&socket).await?;
-    let local_endpoint = stun_result.reflexive_addr;
+    let (local_endpoint, nat_type_str) = if let Some(override_ep) = cfg.advertise_endpoint {
+        info!(endpoint = %override_ep, "Using advertised endpoint override");
+        (override_ep, "unknown")
+    } else {
+        let stun_result = nat::stun_discover(&socket).await?;
+        (stun_result.reflexive_addr, stun_result.nat_type.as_str())
+    };
 
     // Submit our endpoint
     let peers = signaling::exchange_endpoint(
@@ -61,7 +66,7 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
         &cfg.token,
         &peer_id,
         &local_endpoint.to_string(),
-        stun_result.nat_type.as_str(),
+        nat_type_str,
     )
     .await?;
 
