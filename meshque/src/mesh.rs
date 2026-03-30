@@ -360,7 +360,7 @@ async fn connect_to_peer(
 
     // Register sender in peer table
     let sender = PeerTable::make_sender(parts.datagram_send);
-    peer_table.insert(peer_ip, peer_id.to_string(), sender).await;
+    let generation = peer_table.insert(peer_ip, peer_id.to_string(), sender).await;
 
     let pt = peer_table.clone();
     let cp = connected_peers;
@@ -375,9 +375,12 @@ async fn connect_to_peer(
                     }
                 }
                 Err(e) => {
-                    warn!(peer = %peer_ip, error = %e, "Peer disconnected, will reconnect");
-                    pt.remove(&peer_ip).await;
-                    cp.write().await.remove(&pid);
+                    if pt.remove_if_generation(&peer_ip, generation).await {
+                        warn!(peer = %peer_ip, error = %e, "Peer disconnected, will reconnect");
+                        cp.write().await.remove(&pid);
+                    } else {
+                        tracing::debug!(peer = %peer_ip, error = %e, "Stale peer tunnel closed");
+                    }
                     break;
                 }
             }
@@ -434,7 +437,7 @@ async fn handle_incoming(
     // Spawn the recv + TUN write loop. This task runs until the tunnel closes.
     let recv_handle = tokio::spawn(async move {
         let mut recv = parts.datagram_recv;
-        let mut peer_ip: Option<Ipv4Addr> = None;
+        let mut registered_peer: Option<(Ipv4Addr, u64)> = None;
 
         loop {
             match recv.recv_ip_packet().await {
@@ -442,11 +445,11 @@ async fn handle_incoming(
                     if packet.len() >= 20 {
                         let src_ip = Ipv4Addr::new(packet[12], packet[13], packet[14], packet[15]);
 
-                        if peer_ip.is_none() {
-                            peer_ip = Some(src_ip);
+                        if registered_peer.is_none() {
                             let mut guard = sender_for_task.lock().await;
                             if let Some(s) = guard.take() {
-                                pt.insert(src_ip, format!("incoming-{src_ip}"), s).await;
+                                let generation = pt.insert(src_ip, format!("incoming-{src_ip}"), s).await;
+                                registered_peer = Some((src_ip, generation));
                                 info!(peer = %src_ip, "Incoming peer registered in routing table");
                             }
                         }
@@ -457,9 +460,14 @@ async fn handle_incoming(
                     }
                 }
                 Err(e) => {
-                    warn!(error = %e, "Incoming peer tunnel recv error");
-                    if let Some(ip) = peer_ip {
-                        pt.remove(&ip).await;
+                    if let Some((ip, generation)) = registered_peer {
+                        if pt.remove_if_generation(&ip, generation).await {
+                            warn!(peer = %ip, error = %e, "Incoming peer tunnel recv error");
+                        } else {
+                            tracing::debug!(peer = %ip, error = %e, "Stale incoming peer tunnel closed");
+                        }
+                    } else {
+                        warn!(error = %e, "Incoming peer tunnel recv error");
                     }
                     break;
                 }
