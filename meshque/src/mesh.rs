@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
@@ -17,6 +17,38 @@ use crate::nat;
 use crate::peer_table::PeerTable;
 use crate::signaling::{self, NetworkPeerInfo};
 use crate::tun_device;
+
+type ConnectedPeers = Arc<tokio::sync::RwLock<HashSet<String>>>;
+
+struct BackoffTracker {
+    attempts: HashMap<String, (u32, Instant)>,
+}
+
+impl BackoffTracker {
+    fn new() -> Self {
+        Self { attempts: HashMap::new() }
+    }
+
+    fn should_retry(&self, peer_id: &str) -> bool {
+        match self.attempts.get(peer_id) {
+            None => true,
+            Some((count, last_attempt)) => {
+                let delay = Duration::from_secs(2u64.pow((*count).min(6)));
+                last_attempt.elapsed() >= delay
+            }
+        }
+    }
+
+    fn record_failure(&mut self, peer_id: &str) {
+        let entry = self.attempts.entry(peer_id.to_string()).or_insert((0, Instant::now()));
+        entry.0 += 1;
+        entry.1 = Instant::now();
+    }
+
+    fn record_success(&mut self, peer_id: &str) {
+        self.attempts.remove(peer_id);
+    }
+}
 
 /// Run the mesh network daemon.
 pub async fn run(cfg: MeshConfig) -> Result<()> {
@@ -131,10 +163,9 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
         }
     });
 
-    // Connect to all existing peers that have endpoints
-    let mut connected_peers: HashSet<String> = HashSet::new();
+    let connected_peers: ConnectedPeers = Arc::new(tokio::sync::RwLock::new(HashSet::new()));
 
-    // Merge initial_peers and post-exchange peers
+    // Connect to all existing peers that have endpoints
     let all_peers = merge_peers(initial_peers, peers);
 
     for peer_info in &all_peers {
@@ -142,28 +173,27 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
             if let Some(ref ep) = peer_info.endpoint {
                 if let Ok(addr) = ep.parse::<SocketAddr>() {
                     let pip: Ipv4Addr = peer_info.assigned_ip.parse().unwrap_or(Ipv4Addr::UNSPECIFIED);
-                    let pid = peer_info.peer_id.clone();
-
                     info!(peer = %pip, endpoint = %addr, "Connecting to peer");
                     let connected = connect_to_peer(
                         endpoint.clone(),
                         addr,
                         &peer_info.cert_fingerprint,
                         pip,
-                        &pid,
+                        &peer_info.peer_id,
                         peer_table.clone(),
                         tun.clone(),
+                        connected_peers.clone(),
                     )
                     .await;
                     if connected {
-                        connected_peers.insert(peer_info.peer_id.clone());
+                        connected_peers.write().await.insert(peer_info.peer_id.clone());
                     }
                 }
             }
         }
     }
 
-    // Signaling poller — fast initially (every 2s for 60s), then slow (every 30s)
+    // Signaling poller — discovers new peers, reconnects dropped peers
     let pt_for_poll = peer_table.clone();
     let tun_for_poll = tun.clone();
     let endpoint_for_poll = endpoint.clone();
@@ -171,13 +201,13 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
     let cfg_network = cfg.network.clone();
     let cfg_token = cfg.token.clone();
     let peer_id_for_poll = peer_id.clone();
+    let cp_for_poll = connected_peers.clone();
 
     let poll_handle = tokio::spawn(async move {
-        let mut known_peers = connected_peers;
-        let start = std::time::Instant::now();
+        let start = Instant::now();
+        let mut backoff = BackoffTracker::new();
 
         loop {
-            // Fast poll for first 60s, then slow
             let interval = if start.elapsed() < Duration::from_secs(60) {
                 Duration::from_secs(2)
             } else {
@@ -195,30 +225,36 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
             {
                 Ok(peers) => {
                     for peer_info in &peers {
-                        if known_peers.contains(&peer_info.peer_id) {
+                        if cp_for_poll.read().await.contains(&peer_info.peer_id) {
                             continue;
                         }
                         if !should_initiate(local_ip, &peer_info.assigned_ip) {
                             continue;
                         }
+                        if !backoff.should_retry(&peer_info.peer_id) {
+                            continue;
+                        }
                         if let Some(ref ep) = peer_info.endpoint {
                             if let Ok(addr) = ep.parse::<SocketAddr>() {
                                 let pip: Ipv4Addr = peer_info.assigned_ip.parse().unwrap_or(Ipv4Addr::UNSPECIFIED);
-                                let pid = peer_info.peer_id.clone();
-                                info!(peer = %pip, "New peer discovered, connecting");
+                                info!(peer = %pip, "Connecting to peer");
 
                                 let connected = connect_to_peer(
                                     endpoint_for_poll.clone(),
                                     addr,
                                     &peer_info.cert_fingerprint,
                                     pip,
-                                    &pid,
+                                    &peer_info.peer_id,
                                     pt_for_poll.clone(),
                                     tun_for_poll.clone(),
+                                    cp_for_poll.clone(),
                                 )
                                 .await;
                                 if connected {
-                                    known_peers.insert(peer_info.peer_id.clone());
+                                    cp_for_poll.write().await.insert(peer_info.peer_id.clone());
+                                    backoff.record_success(&peer_info.peer_id);
+                                } else {
+                                    backoff.record_failure(&peer_info.peer_id);
                                 }
                             }
                         }
@@ -270,6 +306,7 @@ async fn connect_to_peer(
     peer_id: &str,
     peer_table: PeerTable,
     tun: Arc<tun_rs::AsyncDevice>,
+    connected_peers: ConnectedPeers,
 ) -> bool {
     let verifier: Arc<dyn rustls::client::danger::ServerCertVerifier> =
         Arc::new(crate::connection::FingerprintVerifier(expected_fingerprint.to_string()));
@@ -329,8 +366,9 @@ async fn connect_to_peer(
     let sender = PeerTable::make_sender(parts.datagram_send);
     peer_table.insert(peer_ip, peer_id.to_string(), sender).await;
 
-    // Spawn receiver task — incoming packets from this peer go to TUN
     let pt = peer_table.clone();
+    let cp = connected_peers;
+    let pid = peer_id.to_string();
     tokio::spawn(async move {
         let mut recv = parts.datagram_recv;
         loop {
@@ -341,8 +379,9 @@ async fn connect_to_peer(
                     }
                 }
                 Err(e) => {
-                    warn!(peer = %peer_ip, error = %e, "Peer tunnel recv error");
+                    warn!(peer = %peer_ip, error = %e, "Peer disconnected, will reconnect");
                     pt.remove(&peer_ip).await;
+                    cp.write().await.remove(&pid);
                     break;
                 }
             }

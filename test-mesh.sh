@@ -133,4 +133,39 @@ else
 fi
 
 echo ""
+echo "=== Reconnection test ==="
+echo "Killing peer 2..."
+kill $P2 2>/dev/null
+wait $P2 2>/dev/null
+sleep 2
+
+echo "Verifying P1 -> P2 fails after kill..."
+if ip netns exec mq-ns1 ping -c 1 -W 2 100.64.0.2 >/dev/null 2>&1; then
+    echo "  P1 -> P2: still reachable (unexpected)"
+else
+    echo "  P1 -> P2: unreachable (expected)"
+fi
+
+echo "Restarting peer 2..."
+ip netns exec mq-ns2 "$BINARY" up --network "$NETWORK" --token "$TOKEN" \
+    --signal-server "$SIGNAL" --listen 0.0.0.0:4002 --tun-name mesh2 \
+    --advertise-endpoint 10.0.0.3:4002 -v &
+P2=$!
+echo "Waiting for reconnection (30s)..."
+sleep 30
+
+echo "Verifying connectivity after reconnection..."
+if ip netns exec mq-ns1 ping -c 2 -W 3 100.64.0.2 >/dev/null 2>&1; then
+    echo "  P1 -> P2: OK (reconnected)"
+else
+    echo "  P1 -> P2: FAIL (reconnection failed)"
+fi
+
+if ip netns exec mq-ns2 ping -c 2 -W 3 100.64.0.3 >/dev/null 2>&1; then
+    echo "  P2 -> P3: OK (reconnected)"
+else
+    echo "  P2 -> P3: FAIL (reconnection failed)"
+fi
+
+echo ""
 echo "=== Test complete ==="
