@@ -94,7 +94,16 @@ export function networkRoutes(storage: StorageAdapter): Hono {
       // Check if peer is rejoining
       const existing = network.peers.find((p) => p.peer_id === peer_id);
       if (existing) {
-        existing.cert_fingerprint = cert_fingerprint;
+        if (existing.cert_fingerprint !== cert_fingerprint) {
+          return c.json(
+            {
+              status: "error",
+              message:
+                "Peer identity conflict: existing peer_id must rejoin with the same certificate fingerprint",
+            },
+            409,
+          );
+        }
         existing.last_seen = now;
         existing.endpoint = undefined; // Reset endpoint on rejoin
         network.expires_at = now + NETWORK_TTL_SECONDS * 1000;

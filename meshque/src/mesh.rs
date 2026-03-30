@@ -5,14 +5,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
-use ring::digest;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tracing::{error, info, warn};
 
 use connect_ip_rs::client::ConnectIpClient;
 use connect_ip_rs::proxy::ConnectIpProxy;
 
 use crate::config::MeshConfig;
+use crate::identity;
 use crate::nat;
 use crate::peer_table::PeerTable;
 use crate::signaling::{self, NetworkPeerInfo};
@@ -56,15 +56,11 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
         .install_default()
         .map_err(|_| anyhow::anyhow!("failed to install crypto provider"))?;
 
-    // Generate ephemeral certificate
-    let cert = rcgen::generate_simple_self_signed(vec!["meshque-peer".into()])?;
-    let key_bytes = cert.key_pair.serialize_der();
-    let cert_der_raw = cert.cert;
-    let cert_der = CertificateDer::from(cert_der_raw);
-    let fingerprint = cert_fingerprint(&cert_der);
-    let peer_id = uuid_simple();
+    let identity = identity::load_or_create_identity(cfg.identity_file.as_deref())?;
+    let fingerprint = identity.fingerprint.clone();
+    let peer_id = identity.peer_id.clone();
 
-    let certs = vec![cert_der];
+    let certs = vec![identity.certificate()];
 
     info!(peer_id = %peer_id, fingerprint = %fingerprint, "Generated identity");
 
@@ -117,7 +113,7 @@ pub async fn run(cfg: MeshConfig) -> Result<()> {
     let std_socket = socket.into_std()?;
 
     // Set up quinn endpoint that can both listen and connect
-    let key_for_server: PrivateKeyDer<'static> = PrivatePkcs8KeyDer::from(key_bytes).into();
+    let key_for_server: PrivateKeyDer<'static> = identity.private_key();
     let (endpoint, _server_config) = create_dual_endpoint(
         certs.clone(),
         key_for_server,
@@ -504,26 +500,6 @@ fn create_dual_endpoint(
     )?;
 
     Ok((endpoint, server_config))
-}
-
-fn cert_fingerprint(cert: &CertificateDer<'_>) -> String {
-    let hash = digest::digest(&digest::SHA256, cert.as_ref());
-    let hex = hash
-        .as_ref()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<Vec<_>>()
-        .join(":");
-    format!("sha256:{hex}")
-}
-
-fn uuid_simple() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let pid = std::process::id();
-    format!("{now:x}-{pid:x}")
 }
 
 /// Merge two peer lists, deduplicating by peer_id and preferring the entry with an endpoint.

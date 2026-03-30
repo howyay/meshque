@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::bail;
@@ -39,6 +40,7 @@ pub struct MeshConfig {
     pub signal_server: String,
     pub listen_addr: SocketAddr,
     pub tun_name: String,
+    pub identity_file: Option<PathBuf>,
     /// Override the endpoint advertised to the signaling server.
     /// Useful for local testing (e.g., `127.0.0.1:4001`).
     pub advertise_endpoint: Option<SocketAddr>,

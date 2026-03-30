@@ -124,11 +124,31 @@ describe("POST /api/networks/join", () => {
       network: "testnet",
       token: "secret",
       peer_id: "peer-a",
-      cert_fingerprint: "sha256:aaa-new",
+      cert_fingerprint: "sha256:aaa",
     });
     const data = await json(res);
     expect(data.status).toBe("joined");
     expect(data.assigned_ip).toBe("100.64.0.1");
+  });
+
+  it("rejects rejoin when peer_id fingerprint changes", async () => {
+    await post("/api/networks/join", {
+      network: "testnet",
+      token: "secret",
+      peer_id: "peer-a",
+      cert_fingerprint: "sha256:aaa",
+    });
+
+    const res = await post("/api/networks/join", {
+      network: "testnet",
+      token: "secret",
+      peer_id: "peer-a",
+      cert_fingerprint: "sha256:aaa-new",
+    });
+
+    expect(res.status).toBe(409);
+    const data = await json(res);
+    expect(data.message).toMatch(/certificate fingerprint/i);
   });
 
   it("separate networks are independent", async () => {

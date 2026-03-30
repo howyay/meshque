@@ -1,5 +1,6 @@
 mod config;
 mod connection;
+mod identity;
 mod mesh;
 mod nat;
 mod peer_table;
@@ -42,6 +43,10 @@ enum Commands {
         /// TUN device name
         #[arg(long, default_value = "meshque0")]
         tun_name: String,
+
+        /// Path to the persistent peer identity file
+        #[arg(long)]
+        identity_file: Option<String>,
 
         /// Override advertised endpoint (for local/LAN testing)
         #[arg(long)]
@@ -133,6 +138,7 @@ async fn main() -> Result<()> {
             signal_server,
             listen,
             tun_name,
+            identity_file,
             advertise_endpoint,
             verbose,
         } => {
@@ -149,6 +155,7 @@ async fn main() -> Result<()> {
                 signal_server,
                 listen_addr: listen.parse()?,
                 tun_name,
+                identity_file: identity_file.map(Into::into),
                 advertise_endpoint: advertise_endpoint
                     .map(|e| e.parse())
                     .transpose()?,

@@ -38,6 +38,7 @@ cleanup() {
     iptables -D INPUT -i mq-br0 -j ACCEPT 2>/dev/null
     iptables -D FORWARD -i mq-br0 -j ACCEPT 2>/dev/null
     iptables -D FORWARD -o mq-br0 -j ACCEPT 2>/dev/null
+    rm -rf "$IDENTITY_DIR" 2>/dev/null
     echo "Done."
 }
 trap cleanup EXIT
@@ -69,10 +70,13 @@ for i in 1 2 3; do
 done
 
 SIGNAL="http://10.0.0.1:8787"
+IDENTITY_DIR="/tmp/meshque-identities-$NETWORK"
+mkdir -p "$IDENTITY_DIR"
 
 echo "Starting peer 1..."
 ip netns exec mq-ns1 "$BINARY" up --network "$NETWORK" --token "$TOKEN" \
     --signal-server "$SIGNAL" --listen 0.0.0.0:4001 --tun-name mesh1 \
+    --identity-file "$IDENTITY_DIR/peer1.json" \
     --advertise-endpoint 10.0.0.2:4001 -v &
 P1=$!
 sleep 3
@@ -80,6 +84,7 @@ sleep 3
 echo "Starting peer 2..."
 ip netns exec mq-ns2 "$BINARY" up --network "$NETWORK" --token "$TOKEN" \
     --signal-server "$SIGNAL" --listen 0.0.0.0:4002 --tun-name mesh2 \
+    --identity-file "$IDENTITY_DIR/peer2.json" \
     --advertise-endpoint 10.0.0.3:4002 -v &
 P2=$!
 sleep 3
@@ -87,6 +92,7 @@ sleep 3
 echo "Starting peer 3..."
 ip netns exec mq-ns3 "$BINARY" up --network "$NETWORK" --token "$TOKEN" \
     --signal-server "$SIGNAL" --listen 0.0.0.0:4003 --tun-name mesh3 \
+    --identity-file "$IDENTITY_DIR/peer3.json" \
     --advertise-endpoint 10.0.0.4:4003 -v &
 P3=$!
 echo "Waiting for peers to discover each other and connect..."
@@ -135,8 +141,8 @@ fi
 echo ""
 echo "=== Reconnection test ==="
 echo "Killing peer 2..."
-kill $P2 2>/dev/null
-wait $P2 2>/dev/null
+kill $P2 2>/dev/null || true
+wait $P2 2>/dev/null || true
 sleep 2
 
 echo "Verifying P1 -> P2 fails after kill..."
@@ -149,6 +155,7 @@ fi
 echo "Restarting peer 2..."
 ip netns exec mq-ns2 "$BINARY" up --network "$NETWORK" --token "$TOKEN" \
     --signal-server "$SIGNAL" --listen 0.0.0.0:4002 --tun-name mesh2 \
+    --identity-file "$IDENTITY_DIR/peer2.json" \
     --advertise-endpoint 10.0.0.3:4002 -v &
 P2=$!
 echo "Waiting for reconnection (30s)..."
