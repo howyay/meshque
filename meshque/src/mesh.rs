@@ -349,10 +349,13 @@ async fn connect_to_peer(
         }
     });
 
-    // Drive h3 in background
+    // Drive h3 in background.
+    // IMPORTANT: send_request must be kept alive — dropping it closes the h3 connection.
+    let send_request_handle = client_session.send_request;
     tokio::spawn(async move {
         let mut driver = client_session.driver;
         driver.wait_idle().await;
+        drop(send_request_handle);
     });
 
     info!(peer = %peer_ip, "Connected to peer");

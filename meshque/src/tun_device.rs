@@ -1,5 +1,6 @@
 use std::future::poll_fn;
 use std::net::Ipv4Addr;
+use std::process::Command;
 
 use anyhow::{Context, Result};
 use tun_rs::{AsyncDevice, DeviceBuilder};
@@ -14,10 +15,22 @@ pub fn create_tun(
 ) -> Result<AsyncDevice> {
     let device = DeviceBuilder::new()
         .name(name)
-        .ipv4(address, "255.255.255.255", None)
+        .ipv4(address, 32u8, None)
         .mtu(mtu)
         .build_async()
         .with_context(|| format!("failed to create TUN device '{name}' (are you root?)"))?;
+
+    // Linux TUN devices are point-to-point — the kernel ignores SIOCSIFNETMASK,
+    // so no subnet route is created automatically.  Use source-based policy
+    // routing so that each peer's outbound mesh traffic goes through its own TUN
+    // (required when multiple peers share the same host, e.g. in testing).
+    let table = format!("{}", 100 + u32::from(address.octets()[3]));
+    let addr_str = address.to_string();
+    run_ip(&["rule", "add", "from", &addr_str, "table", &table])?;
+    run_ip(&["route", "add", "100.64.0.0/10", "dev", name, "table", &table])?;
+    // Fallback route in main table satisfies rp_filter (loose mode) without
+    // interfering with policy routing (which has higher priority).
+    run_ip(&["route", "add", "100.64.0.0/10", "dev", name, "metric", "9999"])?;
 
     info!(
         name,
@@ -28,6 +41,20 @@ pub fn create_tun(
     );
 
     Ok(device)
+}
+
+fn run_ip(args: &[&str]) -> Result<()> {
+    let output = Command::new("ip")
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to run: ip {}", args.join(" ")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.contains("File exists") {
+            anyhow::bail!("ip {} failed: {stderr}", args.join(" "));
+        }
+    }
+    Ok(())
 }
 
 /// Read a single IP packet from the TUN device.

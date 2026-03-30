@@ -7,7 +7,7 @@ description = "Mesh VPN over MASQUE CONNECT-IP (RFC 9484)"
 
 [dependencies]
 # Our CONNECT-IP crate (public repo: https://github.com/howyay/connect-ip-rs)
-connect-ip-rs = { git = "https://github.com/howyay/connect-ip-rs" }
+connect-ip-rs = { git = "https://github.com/howyay/connect-ip-rs.git" }
 
 # QUIC / HTTP/3
 quinn = "0.11"

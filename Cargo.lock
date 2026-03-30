@@ -289,7 +289,7 @@ dependencies = [
 [[package]]
 name = "connect-ip-rs"
 version = "0.1.0"
-source = "git+https://github.com/howyay/connect-ip-rs#443369e8bd9ebabe1cb17d3d42be4ec167cbc203"
+source = "git+https://github.com/howyay/connect-ip-rs.git#2f2ffbb019fd13ac9141eac6f5f0d547c7c62d09"
 dependencies = [
  "bytes",
  "h3",
